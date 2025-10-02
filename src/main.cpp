@@ -33,27 +33,27 @@ XPLMWindowID gWindow = nullptr;
 
 // 按压状态跟踪结构
 struct PushState {
-    float prevValue;     // 上一次的值
-    bool wasPositive;    // 上一次是否为正值
-    bool isPushed;       // 当前是否被按下
+    float prevValue;
+    bool wasPositive;
+    bool isPushed;
 
     PushState() : prevValue(0.0f), wasPositive(false), isPushed(false) {}
 
     void update(float currentValue) {
-        bool isPositive = currentValue > 0.1f;  // 阈值 0.1
-        bool isZero = currentValue < 0.05f;     // 接近0的阈值
+        bool isPositive = currentValue > 0.1f;
+        bool isZero = currentValue < 0.05f;
 
         // 检测按下：0 -> 正 -> 0
         if (prevValue < 0.05f && isPositive) {
             wasPositive = true;
         } else if (wasPositive && isZero) {
-            isPushed = true;   // 按下完成
+            isPushed = true;
             wasPositive = false;
         }
 
-        // 检测拔出：正 -> 0 -> 正（反向）
+        // 检测拔出：按下状态 + 检测到正值
         if (isPushed && isPositive) {
-            isPushed = false;  // 拔出
+            isPushed = false;
         }
 
         prevValue = currentValue;
@@ -65,29 +65,6 @@ PushState gSPDPushState;
 PushState gHDGPushState;
 PushState gALTPushState;
 PushState gVSPushState;
-
-// 获取 DataRef 类型字符串
-std::string GetDataRefTypeString(XPLMDataRef ref) {
-    if (!ref) return "NULL";
-
-    int types = XPLMGetDataRefTypes(ref);
-
-    if (types == 0) return "Unknown";
-
-    std::string result;
-    if (types & xplmType_Int)        result += "Int|";
-    if (types & xplmType_Float)      result += "Float|";
-    if (types & xplmType_Double)     result += "Double|";
-    if (types & xplmType_FloatArray) result += "FloatArr|";
-    if (types & xplmType_IntArray)   result += "IntArr|";
-    if (types & xplmType_Data)       result += "Data|";
-
-    if (!result.empty() && result.back() == '|') {
-        result.pop_back();
-    }
-
-    return result;
-}
 
 // 绘制函数
 void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
@@ -134,14 +111,13 @@ void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
     int ap1 = gAP1 ? XPLMGetDatai(gAP1) : 0;
     int ap2 = gAP2 ? XPLMGetDatai(gAP2) : 0;
 
-    // 读取 FPA 字符串 (格式: "+2.1 RWY tRK")
+    // 读取 FPA 字符串
     float fpa = 0.0f;
-    char fpaStr[64] = {0};
     if (gFPA) {
+        char fpaStr[64] = {0};
         int len = XPLMGetDatab(gFPA, fpaStr, 0, sizeof(fpaStr) - 1);
         if (len > 0) {
             fpaStr[len] = '\0';
-            // 解析数值部分 (第一个浮点数)
             fpa = static_cast<float>(atof(fpaStr));
         }
     }
@@ -155,69 +131,39 @@ void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
     // 速度显示
     if (machMode) {
         oss << (gSPDPushState.isPushed ? "·" : " ")
-            << "MACH: " << std::setprecision(3) << spd
-            << " [raw:" << spd << "]\n";
+            << "MACH: " << std::setprecision(3) << spd << "\n";
     } else {
         oss << (gSPDPushState.isPushed ? "·" : " ")
-            << "SPD:  " << std::setw(3) << static_cast<int>(spd) << " kts"
-            << " [raw:" << spd << "]\n";
+            << "SPD:  " << std::setw(3) << static_cast<int>(spd) << " kts\n";
     }
 
-    // 航向显示（HDG/TRK）
+    // 航向显示
     if (hdgTrkMode) {
         oss << (gHDGPushState.isPushed ? "·" : " ")
-            << "TRK:  " << std::setw(3) << static_cast<int>(hdg) << " deg"
-            << " [raw:" << hdg << "]\n";
+            << "TRK:  " << std::setw(3) << static_cast<int>(hdg) << " deg\n";
     } else {
         oss << (gHDGPushState.isPushed ? "·" : " ")
-            << "HDG:  " << std::setw(3) << static_cast<int>(hdg) << " deg"
-            << " [raw:" << hdg << "]\n";
+            << "HDG:  " << std::setw(3) << static_cast<int>(hdg) << " deg\n";
     }
 
     // 高度显示
     oss << (gALTPushState.isPushed ? "·" : " ")
-        << "ALT:  " << std::setw(5) << static_cast<int>(alt) << " ft"
-        << " [raw:" << alt << "]\n";
+        << "ALT:  " << std::setw(5) << static_cast<int>(alt) << " ft\n";
 
     // 垂直速度/FPA 显示
     if (hdgTrkMode) {
-        // TRK/FPA 模式
         oss << (gVSPushState.isPushed ? "·" : " ")
-            << "FPA:  " << std::setprecision(1) << std::setw(5) << fpa << " deg"
-            << " [raw:" << fpaStr << "]\n";
+            << "FPA:  " << std::setprecision(1) << std::setw(5) << fpa << " deg\n";
     } else {
-        // HDG/VS 模式
         oss << (gVSPushState.isPushed ? "·" : " ")
-            << "V/S:  " << std::setw(5) << static_cast<int>(vs) << " fpm"
-            << " [raw:" << vs << "]\n";
+            << "V/S:  " << std::setw(5) << static_cast<int>(vs) << " fpm\n";
     }
 
     oss << "--------------------------------\n";
-    oss << "Push Anim: SPD=" << std::setprecision(2) << spdPush
-        << " HDG=" << hdgPush
-        << " ALT=" << altPush
-        << " VS=" << vsPush << "\n";
     oss << "Mode: " << (hdgTrkMode ? "TRK/FPA" : "HDG/VS ") << " | ";
     oss << (machMode ? "MACH" : "SPD ") << "\n";
-    oss << "AP1: " << (ap1 ? "ON " : "OFF") << " [" << ap1 << "]  |  ";
-    oss << "AP2: " << (ap2 ? "ON " : "OFF") << " [" << ap2 << "]\n";
-
-    // DataRef 类型信息
-    oss << "================================\n";
-    oss << "DataRef Types:\n";
-    oss << "  SPD: " << GetDataRefTypeString(gSPD) << "\n";
-    oss << "  HDG: " << GetDataRefTypeString(gHDG) << "\n";
-    oss << "  ALT: " << GetDataRefTypeString(gALT) << "\n";
-    oss << "  V/S: " << GetDataRefTypeString(gVS) << "\n";
-    oss << "  FPA: " << GetDataRefTypeString(gFPA) << "\n";
-    oss << "  SPD Push: " << GetDataRefTypeString(gSPDPush) << "\n";
-    oss << "  HDG Push: " << GetDataRefTypeString(gHDGPush) << "\n";
-    oss << "  ALT Push: " << GetDataRefTypeString(gALTPush) << "\n";
-    oss << "  VS  Push: " << GetDataRefTypeString(gVSPush) << "\n";
-    oss << "  HDG/TRK Mode: " << GetDataRefTypeString(gHDGTRKMode) << "\n";
-    oss << "  Mach Mode: " << GetDataRefTypeString(gMachMode) << "\n";
-    oss << "  AP1: " << GetDataRefTypeString(gAP1) << "\n";
-    oss << "  AP2: " << GetDataRefTypeString(gAP2) << "\n";
+    oss << "AP1: " << (ap1 ? "ON " : "OFF") << "  |  ";
+    oss << "AP2: " << (ap2 ? "ON " : "OFF") << "\n";
     oss << "================================";
 
     std::string text = oss.str();
@@ -225,11 +171,8 @@ void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
     // 绘制文本
     float white[3] = {1.0f, 1.0f, 1.0f};
     float green[3] = {0.0f, 1.0f, 0.0f};
-    float cyan[3]  = {0.0f, 0.8f, 1.0f};
-    float red[3]   = {1.0f, 0.3f, 0.3f};
-    float yellow[3] = {1.0f, 1.0f, 0.0f};
-    int lineHeight = 13;
-    int y = t - 16;
+    int lineHeight = 15;
+    int y = t - 18;
     std::istringstream lines(text);
     std::string line;
     int lineNum = 0;
@@ -237,24 +180,9 @@ void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
     while (std::getline(lines, line)) {
         float* color = white;
 
-        // 标题用绿色
-        if (lineNum == 0 || line.find("===") != std::string::npos) {
-            color = green;
-        }
-        // DataRef Types 标题用黄色
-        else if (line.find("DataRef Types:") != std::string::npos) {
-            color = yellow;
-        }
-        // NULL 类型用红色
-        else if (line.find("NULL") != std::string::npos) {
-            color = red;
-        }
-        // 包含 [raw:] 的行用青色
-        else if (line.find("[raw:") != std::string::npos) {
-            color = cyan;
-        }
-        // 分隔线用绿色
-        else if (line.find("---") != std::string::npos) {
+        // 标题和分隔线用绿色
+        if (lineNum == 0 || line.find("===") != std::string::npos ||
+            line.find("---") != std::string::npos) {
             color = green;
         }
 
@@ -301,7 +229,7 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc)
     gAP2 = XPLMFindDataRef("AirbusFBW/AP2Engage");
     gFPA = XPLMFindDataRef("AirbusFBW/FMA1b");
 
-    // 创建窗口（使用 XPLM 3.0 API）
+    // 创建窗口
     XPLMCreateWindow_t params;
     memset(&params, 0, sizeof(params));
     params.structSize = sizeof(params);
@@ -313,9 +241,9 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc)
     params.handleMouseWheelFunc = nullptr;
     params.refcon = nullptr;
     params.left = 50;
-    params.top = 900;
-    params.right = 550;
-    params.bottom = 450;
+    params.top = 600;
+    params.right = 380;
+    params.bottom = 420;
     params.decorateAsFloatingWindow = xplm_WindowDecorationRoundRectangle;
 
     gWindow = XPLMCreateWindowEx(&params);
