@@ -4,7 +4,8 @@
       "Read(//f/bian/cppproject/X-Plane-plugins/X-plane-SDK/CHeaders/**)",
       "Bash(cmake:*)",
       "Read(//f/bian/cppproject/X-Plane-plugins/X-plane-SDK/Libraries/**)",
-      "Read(//e/software/X-Plane 12/Resources/plugins/**)"
+      "Read(//e/software/X-Plane 12/Resources/plugins/**)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []
