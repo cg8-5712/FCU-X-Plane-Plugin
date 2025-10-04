@@ -115,10 +115,8 @@ if (WIN32)
         "opengl32.lib"
     )
 elseif(APPLE)
-    # macOS 使用框架，不需要链接库文件
+    # macOS 插件在运行时动态链接，只需要OpenGL框架
     target_link_libraries(${PROJECT_NAME}
-        "-framework XPLM"
-        "-framework XPWidgets"
         "-framework OpenGL"
     )
 elseif(UNIX)
