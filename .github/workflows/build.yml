@@ -88,24 +88,12 @@ jobs:
       with:
         path: artifacts
 
-    - name: Create release package
-      run: |
-        mkdir -p release/ToLissFCUMonitor
-        cp -r artifacts/ToLissFCUMonitor-win/ToLissFCUMonitor/* release/ToLissFCUMonitor/
-        cp -r artifacts/ToLissFCUMonitor-lin/ToLissFCUMonitor/* release/ToLissFCUMonitor/
-
-        # Add README if exists
-        if [ -f "README.md" ]; then
-          cp README.md release/ToLissFCUMonitor/
-        fi
-
-        cd release
-        zip -r ToLissFCUMonitor-${{ github.ref_name }}.zip ToLissFCUMonitor
-
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
-        files: release/ToLissFCUMonitor-${{ github.ref_name }}.zip
+        files: |
+          artifacts/ToLissFCUMonitor-win/ToLissFCUMonitor/win.xpl
+          artifacts/ToLissFCUMonitor-lin/ToLissFCUMonitor/lin.xpl
         draft: false
         prerelease: false
         generate_release_notes: true
