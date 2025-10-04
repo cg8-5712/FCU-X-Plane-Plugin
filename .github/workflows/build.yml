@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest]
         include:
           - os: windows-latest
             platform_name: win
@@ -23,9 +23,6 @@ jobs:
           - os: ubuntu-latest
             platform_name: lin
             artifact_name: lin.xpl
-          - os: macos-latest
-            platform_name: mac
-            artifact_name: mac.xpl
 
     steps:
     - name: Checkout code
@@ -96,7 +93,6 @@ jobs:
         mkdir -p release/ToLissFCUMonitor
         cp -r artifacts/ToLissFCUMonitor-win/ToLissFCUMonitor/* release/ToLissFCUMonitor/
         cp -r artifacts/ToLissFCUMonitor-lin/ToLissFCUMonitor/* release/ToLissFCUMonitor/
-        cp -r artifacts/ToLissFCUMonitor-mac/ToLissFCUMonitor/* release/ToLissFCUMonitor/
 
         # Add README if exists
         if [ -f "README.md" ]; then
