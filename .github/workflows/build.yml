@@ -50,6 +50,7 @@ jobs:
         rm XPSDK.zip
 
     - name: Configure CMake
+      shell: bash
       run: |
         cmake -B build -DCMAKE_BUILD_TYPE=Release -DXPLM_SDK_PATH="${{ github.workspace }}/extern/XPLM-SDK"
 
@@ -61,11 +62,7 @@ jobs:
       shell: bash
       run: |
         mkdir -p artifact/ToLissFCUMonitor
-        if [ "${{ matrix.platform_name }}" = "win" ]; then
-          cp dist/Release/${{ matrix.artifact_name }} artifact/ToLissFCUMonitor/
-        else
-          cp dist/${{ matrix.artifact_name }} artifact/ToLissFCUMonitor/
-        fi
+        cp dist/Release/${{ matrix.artifact_name }} artifact/ToLissFCUMonitor/
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
