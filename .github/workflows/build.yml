@@ -1,0 +1,114 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            platform_name: win
+            artifact_name: win.xpl
+          - os: ubuntu-latest
+            platform_name: lin
+            artifact_name: lin.xpl
+          - os: macos-latest
+            platform_name: mac
+            artifact_name: mac.xpl
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Cache X-Plane SDK
+      id: cache-sdk
+      uses: actions/cache@v4
+      with:
+        path: extern/XPLM-SDK
+        key: xpsdk-301-${{ runner.os }}
+
+    - name: Download X-Plane SDK
+      if: steps.cache-sdk.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        mkdir -p extern
+        cd extern
+        curl -L -o XPSDK.zip https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK301.zip
+        unzip -q XPSDK.zip
+        mv SDK XPLM-SDK
+        rm XPSDK.zip
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DXPLM_SDK_PATH="${{ github.workspace }}/extern/XPLM-SDK"
+
+    - name: Build
+      run: |
+        cmake --build build --config Release
+
+    - name: Prepare artifact
+      shell: bash
+      run: |
+        mkdir -p artifact/ToLissFCUMonitor
+        if [ "${{ matrix.platform_name }}" = "win" ]; then
+          cp dist/Release/${{ matrix.artifact_name }} artifact/ToLissFCUMonitor/
+        else
+          cp dist/${{ matrix.artifact_name }} artifact/ToLissFCUMonitor/
+        fi
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ToLissFCUMonitor-${{ matrix.platform_name }}
+        path: artifact/
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create release package
+      run: |
+        mkdir -p release/ToLissFCUMonitor
+        cp -r artifacts/ToLissFCUMonitor-win/ToLissFCUMonitor/* release/ToLissFCUMonitor/
+        cp -r artifacts/ToLissFCUMonitor-lin/ToLissFCUMonitor/* release/ToLissFCUMonitor/
+        cp -r artifacts/ToLissFCUMonitor-mac/ToLissFCUMonitor/* release/ToLissFCUMonitor/
+
+        # Add README if exists
+        if [ -f "README.md" ]; then
+          cp README.md release/ToLissFCUMonitor/
+        fi
+
+        cd release
+        zip -r ToLissFCUMonitor-${{ github.ref_name }}.zip ToLissFCUMonitor
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release/ToLissFCUMonitor-${{ github.ref_name }}.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

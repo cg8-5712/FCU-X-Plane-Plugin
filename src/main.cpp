@@ -17,6 +17,15 @@
 #include <windows.h>
 #endif
 
+#if IBM
+#include <windows.h>
+#include <GL/gl.h>
+#elif LIN
+#include <GL/gl.h>
+#else
+#include <OpenGL/gl.h>
+#endif
+
 // ToLiss FCU DataRef 定义
 XPLMDataRef gSPD = nullptr;
 XPLMDataRef gHDG = nullptr;
@@ -38,6 +47,8 @@ XPLMDataRef gAPVerticalMode = nullptr;  // 1=CLB, 101=OP CLB, 107=VS
 XPLMWindowID gWindow = nullptr;
 XPLMMenuID gMenuID = nullptr;
 int gMenuItemIdx = -1;
+XPLMMenuID gPortMenuID = nullptr;
+int gPortMenuItemIdx = -1;
 
 // 串口相关
 #ifdef _WIN32
@@ -46,6 +57,11 @@ HANDLE gSerialHandle = INVALID_HANDLE_VALUE;
 std::string gSerialPortName = "";
 std::string gSerialStatus = "Disconnected";
 std::vector<std::string> gAvailablePorts;
+std::vector<std::string> gPortMenuRefs; // 保存菜单项引用字符串
+
+// UI 控件状态
+int gSelectedPortIndex = 0;  // 当前选择的串口索引
+bool gShowDropdown = false;  // 是否显示下拉列表
 
 // 串口函数
 #ifdef _WIN32
@@ -147,14 +163,95 @@ void CloseSerialPort()
     gSerialStatus = "Disconnected";
     gSerialPortName = "";
 }
+
+// 前向声明
+void BuildPortMenu();
+
+// 定时刷新COM端口列表
+float RefreshPortsCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceLastFlightLoop,
+                          int inCounter, void* inRefcon)
+{
+    // 刷新可用端口列表
+    gAvailablePorts = EnumerateSerialPorts();
+
+    // 更新菜单
+    BuildPortMenu();
+
+    // 根据是否有设备连接返回不同的刷新间隔
+    if (gSerialHandle != INVALID_HANDLE_VALUE) {
+        return 30.0f;  // 已连接：30秒刷新一次
+    } else {
+        return 10.0f;  // 未连接：10秒刷新一次
+    }
+}
 #endif
+
+// 构建串口菜单
+void BuildPortMenu()
+{
+#ifdef _WIN32
+    if (!gPortMenuID) return;
+
+    // 清除所有菜单项
+    XPLMClearAllMenuItems(gPortMenuID);
+
+    // 清空并重建引用字符串
+    gPortMenuRefs.clear();
+
+    // 添加所有可用串口
+    if (gAvailablePorts.empty()) {
+        XPLMAppendMenuItem(gPortMenuID, "No ports available", (void*)"no_port", 0);
+    } else {
+        for (const auto& port : gAvailablePorts) {
+            std::string portRef = "port:" + port;
+            gPortMenuRefs.push_back(portRef);
+
+            std::string menuLabel = port;
+            if (port == gSerialPortName) {
+                menuLabel += " (Connected)";
+            }
+
+            XPLMAppendMenuItem(gPortMenuID, menuLabel.c_str(),
+                             (void*)gPortMenuRefs.back().c_str(), 0);
+        }
+    }
+#endif
+}
 
 // 菜单回调函数
 void MenuHandlerCallback(void* inMenuRef, void* inItemRef)
 {
-    if (gWindow) {
-        int isVisible = XPLMGetWindowIsVisible(gWindow);
-        XPLMSetWindowIsVisible(gWindow, !isVisible);
+    if (!inItemRef) return;
+
+    const char* itemRef = (const char*)inItemRef;
+
+    if (strcmp(itemRef, "toggle_ui") == 0) {
+        // 切换窗口显示/隐藏
+        if (gWindow) {
+            int isVisible = XPLMGetWindowIsVisible(gWindow);
+            XPLMSetWindowIsVisible(gWindow, !isVisible);
+        }
+    }
+    else if (strcmp(itemRef, "refresh_ports") == 0) {
+        // 刷新串口列表
+#ifdef _WIN32
+        gAvailablePorts = EnumerateSerialPorts();
+        BuildPortMenu();
+        if (gAvailablePorts.empty()) {
+            gSerialStatus = "No serial ports found";
+        } else {
+            gSerialStatus = std::to_string(gAvailablePorts.size()) + " port(s) found";
+        }
+#endif
+    }
+    else if (strncmp(itemRef, "port:", 5) == 0) {
+        // 选择串口
+#ifdef _WIN32
+        std::string portName = itemRef + 5; // 跳过 "port:" 前缀
+        if (OpenSerialPort(portName)) {
+            // 连接成功
+        }
+#endif
     }
 }
 
@@ -307,6 +404,7 @@ void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
     // 绘制文本
     float white[3] = {1.0f, 1.0f, 1.0f};
     float green[3] = {0.0f, 1.0f, 0.0f};
+    float yellow[3] = {1.0f, 1.0f, 0.0f};
     int lineHeight = 15;
     int y = t - 18;
     std::istringstream lines(text);
@@ -326,10 +424,205 @@ void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
         y -= lineHeight;
         lineNum++;
     }
+
+    // 绘制串口选择UI
+    int uiY = b + 30;  // UI控件的Y位置（往下移动避免重合）
+
+    // 绘制下拉框背景
+    int dropdownX = l + 10;
+    int dropdownY = uiY;
+    int dropdownWidth = 150;
+    int dropdownHeight = 20;
+
+    XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
+    glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
+    glBegin(GL_QUADS);
+    glVertex2i(dropdownX, dropdownY);
+    glVertex2i(dropdownX + dropdownWidth, dropdownY);
+    glVertex2i(dropdownX + dropdownWidth, dropdownY + dropdownHeight);
+    glVertex2i(dropdownX, dropdownY + dropdownHeight);
+    glEnd();
+
+    // 绘制下拉框边框
+    glColor4f(0.5f, 0.5f, 0.5f, 1.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2i(dropdownX, dropdownY);
+    glVertex2i(dropdownX + dropdownWidth, dropdownY);
+    glVertex2i(dropdownX + dropdownWidth, dropdownY + dropdownHeight);
+    glVertex2i(dropdownX, dropdownY + dropdownHeight);
+    glEnd();
+
+    // 绘制下拉框文本
+#ifdef _WIN32
+    std::string dropdownText = "None";
+    if (!gAvailablePorts.empty() && gSelectedPortIndex >= 0 &&
+        gSelectedPortIndex < static_cast<int>(gAvailablePorts.size())) {
+        dropdownText = gAvailablePorts[gSelectedPortIndex];
+    } else if (!gAvailablePorts.empty()) {
+        gSelectedPortIndex = 0;
+        dropdownText = gAvailablePorts[0];
+    }
+#else
+    std::string dropdownText = "N/A (Windows only)";
+#endif
+
+    XPLMDrawString(white, dropdownX + 5, dropdownY + 5,
+                   const_cast<char*>(dropdownText.c_str()), nullptr, xplmFont_Basic);
+
+    // 绘制下拉箭头
+    XPLMDrawString(white, dropdownX + dropdownWidth - 15, dropdownY + 5,
+                   const_cast<char*>("v"), nullptr, xplmFont_Basic);
+
+    // 如果下拉列表展开，绘制列表项
+#ifdef _WIN32
+    if (gShowDropdown && !gAvailablePorts.empty()) {
+        int itemHeight = 18;
+        for (size_t i = 0; i < gAvailablePorts.size(); i++) {
+            int itemY = dropdownY - (i + 1) * itemHeight;
+
+            // 绘制项背景
+            if (i == static_cast<size_t>(gSelectedPortIndex)) {
+                glColor4f(0.3f, 0.3f, 0.5f, 1.0f);  // 高亮选中项
+            } else {
+                glColor4f(0.2f, 0.2f, 0.2f, 1.0f);
+            }
+            glBegin(GL_QUADS);
+            glVertex2i(dropdownX, itemY);
+            glVertex2i(dropdownX + dropdownWidth, itemY);
+            glVertex2i(dropdownX + dropdownWidth, itemY + itemHeight);
+            glVertex2i(dropdownX, itemY + itemHeight);
+            glEnd();
+
+            // 绘制项边框
+            glColor4f(0.5f, 0.5f, 0.5f, 1.0f);
+            glBegin(GL_LINE_LOOP);
+            glVertex2i(dropdownX, itemY);
+            glVertex2i(dropdownX + dropdownWidth, itemY);
+            glVertex2i(dropdownX + dropdownWidth, itemY + itemHeight);
+            glVertex2i(dropdownX, itemY + itemHeight);
+            glEnd();
+
+            // 绘制项文本
+            XPLMDrawString(white, dropdownX + 5, itemY + 3,
+                         const_cast<char*>(gAvailablePorts[i].c_str()),
+                         nullptr, xplmFont_Basic);
+        }
+    }
+#endif
+
+    // 绘制连接/断开按钮
+    int buttonX = dropdownX + dropdownWidth + 10;
+    int buttonY = uiY;
+    int buttonWidth = 80;
+    int buttonHeight = 20;
+
+    XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
+
+    // 按钮背景 - 根据连接状态改变颜色
+    if (gSerialHandle != INVALID_HANDLE_VALUE) {
+        glColor4f(0.5f, 0.2f, 0.2f, 1.0f);  // 已连接 - 红色系
+    } else {
+        glColor4f(0.2f, 0.5f, 0.2f, 1.0f);  // 未连接 - 绿色系
+    }
+    glBegin(GL_QUADS);
+    glVertex2i(buttonX, buttonY);
+    glVertex2i(buttonX + buttonWidth, buttonY);
+    glVertex2i(buttonX + buttonWidth, buttonY + buttonHeight);
+    glVertex2i(buttonX, buttonY + buttonHeight);
+    glEnd();
+
+    // 按钮边框
+    glColor4f(0.7f, 0.7f, 0.7f, 1.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2i(buttonX, buttonY);
+    glVertex2i(buttonX + buttonWidth, buttonY);
+    glVertex2i(buttonX + buttonWidth, buttonY + buttonHeight);
+    glVertex2i(buttonX, buttonY + buttonHeight);
+    glEnd();
+
+    // 按钮文本
+#ifdef _WIN32
+    const char* buttonText = (gSerialHandle != INVALID_HANDLE_VALUE) ? "Disconnect" : "Connect";
+#else
+    const char* buttonText = "N/A";
+#endif
+    XPLMDrawString(yellow, buttonX + 10, buttonY + 5,
+                   const_cast<char*>(buttonText), nullptr, xplmFont_Basic);
 }
 
 // 鼠标回调
-int DummyMouse(XPLMWindowID, int, int, int, void*) { return 0; }
+int DummyMouse(XPLMWindowID inWindowID, int x, int y, int isDown, void* inRefcon)
+{
+    if (!isDown) return 0;  // 只处理按下事件
+
+    int l, t, r, b;
+    XPLMGetWindowGeometry(inWindowID, &l, &t, &r, &b);
+
+    // UI控件位置（与绘制时保持一致）
+    int uiY = b + 30;
+    int dropdownX = l + 10;
+    int dropdownY = uiY;
+    int dropdownWidth = 150;
+    int dropdownHeight = 20;
+    int buttonX = dropdownX + dropdownWidth + 10;
+    int buttonY = uiY;
+    int buttonWidth = 80;
+    int buttonHeight = 20;
+
+#ifdef _WIN32
+    // 检查是否点击了下拉框
+    if (x >= dropdownX && x <= dropdownX + dropdownWidth &&
+        y >= dropdownY && y <= dropdownY + dropdownHeight) {
+        // 刷新可用串口列表
+        gAvailablePorts = EnumerateSerialPorts();
+        // 切换下拉列表显示状态
+        gShowDropdown = !gShowDropdown;
+        return 1;
+    }
+
+    // 检查是否点击了下拉列表项
+    if (gShowDropdown && !gAvailablePorts.empty()) {
+        int itemHeight = 18;
+        for (size_t i = 0; i < gAvailablePorts.size(); i++) {
+            int itemY = dropdownY - (i + 1) * itemHeight;
+            if (x >= dropdownX && x <= dropdownX + dropdownWidth &&
+                y >= itemY && y <= itemY + itemHeight) {
+                // 选择串口
+                gSelectedPortIndex = static_cast<int>(i);
+                gShowDropdown = false;
+                return 1;
+            }
+        }
+    }
+
+    // 检查是否点击了连接/断开按钮
+    if (x >= buttonX && x <= buttonX + buttonWidth &&
+        y >= buttonY && y <= buttonY + buttonHeight) {
+        if (gSerialHandle != INVALID_HANDLE_VALUE) {
+            // 当前已连接，执行断开
+            CloseSerialPort();
+        } else {
+            // 当前未连接，执行连接
+            if (!gAvailablePorts.empty() && gSelectedPortIndex >= 0 &&
+                gSelectedPortIndex < static_cast<int>(gAvailablePorts.size())) {
+                OpenSerialPort(gAvailablePorts[gSelectedPortIndex]);
+            } else {
+                gSerialStatus = "No port selected";
+            }
+        }
+        gShowDropdown = false;  // 关闭下拉列表
+        return 1;
+    }
+
+    // 点击其他区域，关闭下拉列表
+    if (gShowDropdown) {
+        gShowDropdown = false;
+        return 1;
+    }
+#endif
+
+    return 0;
+}
 
 // 键盘回调
 void DummyKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) { }
@@ -386,7 +679,22 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc)
     // 创建插件菜单
     gMenuItemIdx = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "FCU Display", nullptr, 0);
     gMenuID = XPLMCreateMenu("FCU Display", XPLMFindPluginsMenu(), gMenuItemIdx, MenuHandlerCallback, nullptr);
-    XPLMAppendMenuItem(gMenuID, "Show/Hide UI", nullptr, 0);
+
+    // 添加菜单项
+    XPLMAppendMenuItem(gMenuID, "Show/Hide UI", (void*)"toggle_ui", 0);
+    XPLMAppendMenuSeparator(gMenuID);
+
+    // 添加串口相关菜单
+#ifdef _WIN32
+    XPLMAppendMenuItem(gMenuID, "Refresh Ports", (void*)"refresh_ports", 0);
+
+    // 创建串口选择子菜单
+    gPortMenuItemIdx = XPLMAppendMenuItem(gMenuID, "Select Port", nullptr, 0);
+    gPortMenuID = XPLMCreateMenu("Select Port", gMenuID, gPortMenuItemIdx, MenuHandlerCallback, nullptr);
+
+    // 初始化串口菜单
+    BuildPortMenu();
+#endif
 
     // 创建窗口
     XPLMCreateWindow_t params;
@@ -402,18 +710,28 @@ PLUGIN_API int XPluginStart(char* outName, char* outSig, char* outDesc)
     params.left = 50;
     params.top = 600;
     params.right = 380;
-    params.bottom = 360;  // 调整高度以容纳串口信息
+    params.bottom = 320;  // 调整高度以容纳串口信息和UI控件
     params.decorateAsFloatingWindow = xplm_WindowDecorationRoundRectangle;
 
     gWindow = XPLMCreateWindowEx(&params);
     XPLMSetWindowPositioningMode(gWindow, xplm_WindowPositionFree, -1);
     XPLMSetWindowTitle(gWindow, "ToLiss FCU Monitor");
 
+    // 注册定时刷新回调（仅Windows）
+#ifdef _WIN32
+    XPLMRegisterFlightLoopCallback(RefreshPortsCallback, 10.0f, nullptr);
+#endif
+
     return 1;
 }
 
 PLUGIN_API void XPluginStop(void)
 {
+    // 注销定时刷新回调
+#ifdef _WIN32
+    XPLMUnregisterFlightLoopCallback(RefreshPortsCallback, nullptr);
+#endif
+
     // 关闭串口
 #ifdef _WIN32
     CloseSerialPort();
@@ -426,6 +744,12 @@ PLUGIN_API void XPluginStop(void)
     }
 
     // 销毁菜单
+#ifdef _WIN32
+    if (gPortMenuID) {
+        XPLMDestroyMenu(gPortMenuID);
+        gPortMenuID = nullptr;
+    }
+#endif
     if (gMenuID) {
         XPLMDestroyMenu(gMenuID);
         gMenuID = nullptr;
