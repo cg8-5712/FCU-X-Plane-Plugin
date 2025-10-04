@@ -17,6 +17,11 @@
 #include <windows.h>
 #endif
 
+// 在macOS上消除OpenGL弃用警告
+#if !defined(IBM) && !defined(LIN)
+#define GL_SILENCE_DEPRECATION
+#endif
+
 #if IBM
 #include <windows.h>
 #include <GL/gl.h>
@@ -519,11 +524,15 @@ void DrawWindowCallback(XPLMWindowID inWindowID, void* inRefcon)
     XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
 
     // 按钮背景 - 根据连接状态改变颜色
+#ifdef _WIN32
     if (gSerialHandle != INVALID_HANDLE_VALUE) {
         glColor4f(0.5f, 0.2f, 0.2f, 1.0f);  // 已连接 - 红色系
     } else {
         glColor4f(0.2f, 0.5f, 0.2f, 1.0f);  // 未连接 - 绿色系
     }
+#else
+    glColor4f(0.5f, 0.5f, 0.5f, 1.0f);  // 非Windows平台 - 灰色
+#endif
     glBegin(GL_QUADS);
     glVertex2i(buttonX, buttonY);
     glVertex2i(buttonX + buttonWidth, buttonY);
